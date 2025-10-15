@@ -1,1 +1,222 @@
+Install Asterisk FreeStats 
+To install Asterisk FreeStats you need:
 
+Enable writing queue logs to the MySQL database through ODBC . (more: Asterisk: queue _log in MySQL via unixODBC )
+Set the username and password of the database in the Asterisk Call Center Stats config.
+Let's turn on the Asterisk queue log in the MySQL database 
+By default, queue statistics data is saved to the queue _log file. 
+
+Let's assign a MySQL database table for data storage - asteriskcdrdb.queuelog
+
+  CREATE TABLE IF NOT EXISTS `asteriskcdrdb.queuelog` (
+ `id` INT NOT NULL AUTO_INCREMENT,
+ `time` char (32) DEFAULT NULL,
+ `callid` char (64) DEFAULT NULL,
+ `queuename` char (64) DEFAULT NULL,
+ `agent` char (64) DEFAULT NULL,
+ `event` char (32) DEFAULT NULL,
+ `data` char (64) DEFAULT NULL,
+ `data1` char (64) DEFAULT NULL,
+ `data2` char (64) DEFAULT NULL,
+ `data3` char (64) DEFAULT NULL,
+ `data4` char (64) DEFAULT NULL,
+ `data5` char (64) DEFAULT NULL,
+ PRIMARY KEY (id)
+ ) ENGINE = MyISAM DEFAULT CHARSET = utf8;
+
+
+ CREATE TABLE IF NOT EXISTS `agents_new` (
+ `id` MEDIUMINT NOT NULL AUTO_INCREMENT,
+ `agent` char (64) DEFAULT NULL,
+ PRIMARY KEY (id)
+ ) ENGINE = MyISAM DEFAULT CHARSET = utf8;
+
+ CREATE TABLE IF NOT EXISTS `queues_new` (
+ `id` MEDIUMINT NOT NULL AUTO_INCREMENT,
+ `queuename` char (64) DEFAULT NULL,
+ PRIMARY KEY (id)
+ ) ENGINE = MyISAM DEFAULT CHARSET = utf8; 
+ 
+
+mysql -ufreepbxuser -pSECRECT  < ./freestats.sql
+
+In the /etc/asterisk/asterisk.conf file , add to the options section:
+
+[options]
+queue_adaptive_realtime=yes 
+
+
+edit /etc/asterisk/logger_general_custom.conf 
+
+and add
+
+queue_adaptive_realtime = yes
+queue_log_to_file = yes
+queue_log => odbc,asteriskcdrdb,queuelog
+
+
+In the realtime configuration file /etc/asterisk/extconfig_custom.conf, we define the driver, family, and target table:
+
+[settings]
+queue_log => odbc,asteriskcdrdb,queuelog 
+
+; where asterisk is the db config, for example in /etc/asterisk/res_odbc_custom.conf
+
+In freepbx the following are already set you just need to add the settings to /etc/asterisk/extconfig_custom.conf as above
+
+If extconfig.conf does not exist, create it with the command: 
+touch /etc/asterisk/extconfig.conf 
+and set permissions:
+
+chown asterisk.  /etc/asterisk/extconfig.conf 
+
+/etc/asterisk/res_odbc_custom.conf 
+[asteriskcdrdb]
+ enabled => yes
+ dsn => asteriskcdrdb
+ username => dbuser
+ password => dbpass
+ pre-connect => yes 
+where is DSN , settings from file
+
+/etc/odbc.ini 
+  [asteriskcdrdb]
+ Description = MySQL connection to 'asteriskcdrdb' database
+ driver = MySQL
+ server = localhost
+ database = asteriskcdrdb
+ Port = 3306
+ Socket = /var/lib/mysql/mysql.sock 
+Apply configuration
+
+
+asterisk -rx 'core restart now'
+   
+NOTE 'core restart now' - drops all current calls
+Check the connection of Asterisk with the database through odbc :
+
+# asterisk -rx 'odbc show'
+
+ODBC DSN Settings
+-----------------
+
+  Name:   asteriskcdrdb
+  DSN:    MySQL-asteriskcdrdb
+    Number of active connections: 3 (out of 5)
+    Logging: Disabled
+
+ 
+Now move freestats and set permissions:
+
+mv freestats /var/www/html/
+
+Asterisk FreeStats config 
+Edit the config.php file according to your data, where
+
+$ DBServer - host (localhost)
+$ DBUser - DB user.
+$ DBPass - DB Password.
+$ DBName - DB name.
+$ DBTable - The name of the database table.
+
+example:
+
+$ DBServer = 'localhost' ;
+$ DBUser = 'freepbxuser' ;
+$ DBPass = 'STRONG_SECRET' ;
+$ DBName = 'asteriskcdrdb' ;
+$ DBTable = 'queuelog' ; 
+Open statistics in your favorite web browser:
+
+http(s)://ip.address/freestats
+
+To add agents and queues, click the appropriate buttons: 
+Sync : 
+ 
+The query will fetch the unique names of agents and queues and place them in the agents_new and queues_new tables . 
+In order for entities to appear , there must be at least one entry in the queuelog table about the incoming call to the queue. 
+
+In the future, if you have new agents or queues, simply synchronize the data to display statistics on them. Call data is saved regardless of synchronization, because the Asterisk queue logger is responsible for this.
+FreePBX conversation recordings in the statistics interface 
+To display conversation records in statistics, copy the following context into the /etc/asterisk/extensions_override_freepbx.conf file. 
+The example shows the context [sub-record-check] of FreePBX Distro 14.
+
+extensions_override_freepbx.conf
+
+Or modify the context from your system in the same way by adding a custom queue event - REC . 
+
+  exten = > recordcheck, n, Queuelog ( recordcheck, $ {UNIQUEID} , NONE, REC, $ {CALLFILENAME} ) 
+You cannot edit the FreePBX context directly in the extensions_additional.conf file, but you can put the modified version in extensions_override_freepbx.conf
+If you use Asterisk 'clean' , you can do the same in the context of calling the queue by adding instead of the ${CALLFILENAME} variable the name of the conversation recording file in accordance with the scheme you use. 
+Additional information about queue log and QueueLog () command.
+
+Authorization through accounts FreePBX 
+To enable authorization with the password FreePBX, uncomment the following code in the config.php file and change the password freepbxpassword to the password of your installation. The password can be viewed in the /etc/asterisk/res_odbc_additional.conf file (for the latest freepbx versions).
+
+ Configure AMI and AJAM for Realtime module 
+ The php-curl package must be installed. 
+ The ajam_cookie file must be created in the root directory of the application:
+
+ touch ajam_cookie && chmod 777 ajam_cookie 
+ 
+Asterisk  needs to have AJAM  enabled  /etc/asterisk/manager.conf
+as below in freepbx go to advanced settings and set "Enable Static Content" to yes 
+
+ [general]
+ enabled = yes
+ port = 5038
+ bindaddr = 0.0.0.0
+ webenabled = yes
+ httptimeout = 60 
+
+ create user AMI
+
+ [ajamuser]
+ secret = PASSWORD
+ deny = 0.0.0.0/0.0.0.0
+ permit = 127.0.0.1/255.255.255.0
+ read = system, agent, reporting
+ write = system, agent, reporting 
+
+and enable the built-in http server in 
+
+/etc/asterisk/http.conf
+
+ [general]
+ enabled = yes
+ enablestatic = yes
+ bindaddr = 0.0.0.0
+ bindport = 8088
+ prefix = asterisk 
+
+
+ To test AJAM Interface is active 
+ freepbx * CLI> http show status 
+ HTTP Server Status:
+ Prefix: / asterisk
+ Server: Asterisk / 15.5.0
+ Server Enabled and Bound to 0.0.0.0:8088
+
+ HTTPS Server Enabled and Bound to [::]: 8089
+
+ Enabled URI's:
+ / asterisk / httpstatus => Asterisk HTTP General Status
+ / asterisk / amanager => HTML Manager Event Interface w / Digest authentication
+ / asterisk / arawman => Raw HTTP Manager Event Interface w / Digest authentication
+ / asterisk / manager => HTML Manager Event Interface
+ / asterisk / rawman => Raw HTTP Manager Event Interface
+ / asterisk / static / ... => Asterisk HTTP Static Delivery
+ / asterisk / amxml => XML Manager Event Interface w / Digest authentication
+ / asterisk / mxml => XML Manager Event Interface
+ / asterisk / ws => Asterisk HTTP WebSocket
+
+ Enabled Redirects:
+   None.
+Finally, set the data to connect to AMI / AJAM in the application config.php file :
+
+  $ config [ 'urlraw' ] = 'http://127.0.0.1:8088/asterisk/rawman' ;
+ $ config [ 'admin' ] = 'ajamuser' ;
+ $ config [ 'secret' ] = 'PASSWORD' ;
+ $ config [ 'authtype' ] = 'plaintext' ;
+ $ config [ 'cookiefile' ] = null ;
+ $ config [ 'debug' ] = false ; 
