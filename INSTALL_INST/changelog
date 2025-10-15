@@ -1,0 +1,3 @@
+v 0.0.1 First re-write removing foreign languages
+v 0.0.2 New Icons for Home page
+        Sync.php edited to add Local channels as agents when calls are passsed to external numbers from queues
